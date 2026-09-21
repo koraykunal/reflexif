@@ -23,8 +23,122 @@ export type OutcomeMetrics = {
   calibrationError: number | null;
 };
 
+export type RegressionBudgets = {
+  maxAccuracyDrop: number;
+  maxFalsePositiveIncrease: number;
+  maxFalseNegativeIncrease: number;
+  maxAbstentionIncrease: number;
+  maxBrierIncrease: number;
+  maxCalibrationErrorIncrease: number;
+};
+
+export type CandidatePolicyConfig = ReplayPolicy & {
+  name: string;
+  budgets: RegressionBudgets;
+};
+
 const key = ({ sessionId, sequence }: { sessionId: string; sequence: number }) =>
   `${sessionId}:${sequence}`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+const isProbability = (value: unknown): value is number =>
+  isFiniteNumber(value) && value >= 0 && value <= 1;
+const isNonNegative = (value: unknown): value is number => isFiniteNumber(value) && value >= 0;
+const isPositiveInteger = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0;
+
+export function parseCandidatePolicy(contents: string): CandidatePolicyConfig {
+  let value: unknown;
+  try {
+    value = JSON.parse(contents);
+  } catch {
+    throw new SyntaxError("Candidate policy must be valid JSON.");
+  }
+  if (!isRecord(value)) throw new TypeError("Candidate policy must be an object.");
+
+  const thresholds = value.thresholds;
+  const temporal = value.temporalPolicy;
+  const budgets = value.budgets;
+  if (
+    typeof value.name !== "string" ||
+    value.name.length === 0 ||
+    typeof value.policyVersion !== "string" ||
+    value.policyVersion.length === 0 ||
+    typeof value.temporalPolicyVersion !== "string" ||
+    value.temporalPolicyVersion.length === 0 ||
+    !isRecord(thresholds) ||
+    !isProbability(thresholds.handoffRequested) ||
+    !isProbability(thresholds.interactionAppropriate) ||
+    !isProbability(thresholds.handoffIntentAmbiguousMax) ||
+    !isRecord(thresholds.handoffDistanceMeters) ||
+    !isNonNegative(thresholds.handoffDistanceMeters.min) ||
+    !isNonNegative(thresholds.handoffDistanceMeters.max) ||
+    thresholds.handoffDistanceMeters.min > thresholds.handoffDistanceMeters.max ||
+    !isRecord(temporal) ||
+    !isRecord(temporal.enterHandoff) ||
+    !isProbability(temporal.enterHandoff.intentAtLeast) ||
+    !isProbability(temporal.enterHandoff.interactionAppropriateAtLeast) ||
+    !isProbability(temporal.enterHandoff.ambiguityAtMost) ||
+    !isPositiveInteger(temporal.enterHandoff.requiredSamples) ||
+    !isPositiveInteger(temporal.enterHandoff.windowSamples) ||
+    temporal.enterHandoff.requiredSamples > temporal.enterHandoff.windowSamples ||
+    !isRecord(temporal.exitHandoff) ||
+    !isProbability(temporal.exitHandoff.intentAtMost) ||
+    !isProbability(temporal.exitHandoff.interactionAppropriateAtMost) ||
+    !isProbability(temporal.exitHandoff.ambiguityAtLeast) ||
+    !isPositiveInteger(temporal.exitHandoff.requiredSamples) ||
+    !isPositiveInteger(temporal.exitHandoff.windowSamples) ||
+    temporal.exitHandoff.requiredSamples > temporal.exitHandoff.windowSamples ||
+    !isNonNegative(temporal.cooldownMs) ||
+    !isNonNegative(temporal.staleAfterMs) ||
+    !isRecord(budgets) ||
+    !isNonNegative(budgets.maxAccuracyDrop) ||
+    !isNonNegative(budgets.maxFalsePositiveIncrease) ||
+    !isNonNegative(budgets.maxFalseNegativeIncrease) ||
+    !isNonNegative(budgets.maxAbstentionIncrease) ||
+    !isNonNegative(budgets.maxBrierIncrease) ||
+    !isNonNegative(budgets.maxCalibrationErrorIncrease)
+  ) {
+    throw new TypeError("Candidate policy contains invalid thresholds or regression budgets.");
+  }
+  return value as unknown as CandidatePolicyConfig;
+}
+
+export function checkRegression(
+  current: OutcomeMetrics,
+  candidate: OutcomeMetrics,
+  budgets: RegressionBudgets,
+): string[] {
+  const violations: string[] = [];
+  const check = (name: string, increase: number, maximum: number) => {
+    if (increase > maximum) violations.push(`${name} increased by ${increase.toFixed(4)} (max ${maximum}).`);
+  };
+  check("Accuracy drop", current.exactAccuracy - candidate.exactAccuracy, budgets.maxAccuracyDrop);
+  check(
+    "False-positive frames",
+    candidate.falsePositiveFrames - current.falsePositiveFrames,
+    budgets.maxFalsePositiveIncrease,
+  );
+  check(
+    "False-negative frames",
+    candidate.falseNegativeFrames - current.falseNegativeFrames,
+    budgets.maxFalseNegativeIncrease,
+  );
+  check("Abstention", candidate.abstentionRate - current.abstentionRate, budgets.maxAbstentionIncrease);
+  if (current.brierScore !== null && candidate.brierScore !== null) {
+    check("Brier score", candidate.brierScore - current.brierScore, budgets.maxBrierIncrease);
+  }
+  if (current.calibrationError !== null && candidate.calibrationError !== null) {
+    check(
+      "Calibration error",
+      candidate.calibrationError - current.calibrationError,
+      budgets.maxCalibrationErrorIncrease,
+    );
+  }
+  return violations;
+}
 
 export function parseOutcomeLabels(contents: string): OutcomeLabel[] {
   const labels = contents
@@ -44,6 +158,7 @@ export function parseOutcomeLabels(contents: string): OutcomeLabel[] {
         typeof value.sessionId !== "string" ||
         !("sequence" in value) ||
         !Number.isInteger(value.sequence) ||
+        (value.sequence as number) < 0 ||
         !("expectedMode" in value) ||
         (value.expectedMode !== "IDLE" &&
           value.expectedMode !== "OBSERVING" &&
@@ -54,7 +169,7 @@ export function parseOutcomeLabels(contents: string): OutcomeLabel[] {
       return {
         sessionId: value.sessionId,
         sequence: value.sequence as number,
-        expectedMode: value.expectedMode,
+        expectedMode: value.expectedMode as RobotMode,
       };
     });
 

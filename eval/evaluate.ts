@@ -1,16 +1,24 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { evaluatePolicy, parseOutcomeLabels } from "../lib/reflexif/evaluation.ts";
+import {
+  checkRegression,
+  evaluatePolicy,
+  parseCandidatePolicy,
+  parseOutcomeLabels,
+} from "../lib/reflexif/evaluation.ts";
 import { readDecisionEvents } from "../lib/reflexif/ledger.ts";
 import { CURRENT_REPLAY_POLICY } from "../lib/reflexif/replay.ts";
 
-const ledgerPath = process.argv[2];
-const outcomesPath = process.argv[3] ?? path.join(process.cwd(), ".reflexif", "outcomes.jsonl");
+const args = process.argv.slice(2);
+const check = args.includes("--check");
+const [ledgerPath, outcomesArgument, candidateArgument] = args.filter((argument) => argument !== "--check");
+const outcomesPath = outcomesArgument ?? path.join(process.cwd(), ".reflexif", "outcomes.jsonl");
+const candidatePath = candidateArgument ?? path.join(process.cwd(), "eval", "candidate-policy.json");
 const events = await readDecisionEvents(ledgerPath);
 
-let contents: string;
+let outcomeContents: string;
 try {
-  contents = await readFile(outcomesPath, "utf8");
+  outcomeContents = await readFile(outcomesPath, "utf8");
 } catch (error) {
   if (error instanceof Error && "code" in error && error.code === "ENOENT") {
     console.error(`Outcome labels not found at ${outcomesPath}.`);
@@ -20,27 +28,26 @@ try {
   throw error;
 }
 
-const labels = parseOutcomeLabels(contents);
+let candidateContents: string;
+try {
+  candidateContents = await readFile(candidatePath, "utf8");
+} catch (error) {
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    console.error(`Candidate policy not found at ${candidatePath}.`);
+    process.exit(1);
+  }
+  throw error;
+}
+
+const labels = parseOutcomeLabels(outcomeContents);
+const candidatePolicy = parseCandidatePolicy(candidateContents);
 if (events.length === 0 || labels.length === 0) {
   console.error("Evaluation requires at least one v2 decision event and one outcome label.");
   process.exit(1);
 }
 
 const current = evaluatePolicy(events, labels, CURRENT_REPLAY_POLICY);
-const candidate = evaluatePolicy(events, labels, {
-  ...CURRENT_REPLAY_POLICY,
-  policyVersion: `${CURRENT_REPLAY_POLICY.policyVersion}-candidate`,
-  temporalPolicyVersion: `${CURRENT_REPLAY_POLICY.temporalPolicyVersion}-candidate`,
-  temporalPolicy: {
-    ...CURRENT_REPLAY_POLICY.temporalPolicy,
-    enterHandoff: {
-      ...CURRENT_REPLAY_POLICY.temporalPolicy.enterHandoff,
-      intentAtLeast: 0.8,
-      requiredSamples: 4,
-      windowSamples: 5,
-    },
-  },
-});
+const candidate = evaluatePolicy(events, labels, candidatePolicy);
 
 const rows = [
   ["coverage", current.metrics.coverage, candidate.metrics.coverage],
@@ -67,4 +74,16 @@ console.table(
 const changed = candidate.replay.filter(
   (result, index) => result.currentCommit.to !== current.replay[index]?.currentCommit.to,
 ).length;
-console.log(`${labels.length} labels, ${events.length} v2 events, ${changed} candidate decision changes.`);
+console.log(
+  `${labels.length} labels, ${events.length} v2 events, ${changed} decision changes for ${candidatePolicy.name}.`,
+);
+
+if (check) {
+  const violations = checkRegression(current.metrics, candidate.metrics, candidatePolicy.budgets);
+  if (violations.length === 0) {
+    console.log("Regression check passed.");
+  } else {
+    console.error(`Regression check failed:\n- ${violations.join("\n- ")}`);
+    process.exitCode = 1;
+  }
+}

@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  checkRegression,
   evaluateOutcomes,
   evaluatePolicy,
+  parseCandidatePolicy,
   parseOutcomeLabels,
   type OutcomeLabel,
 } from "./evaluation.ts";
@@ -181,7 +183,8 @@ test("records committed temporal state and provider failures as ordered events",
     assert.equal(metrics.falsePositiveFrames, 0);
     assert.equal(metrics.falseNegativeFrames, 0);
     assert.notEqual(metrics.brierScore, null);
-    const candidate = evaluatePolicy(events, labels, {
+    const candidatePolicy = parseCandidatePolicy(JSON.stringify({
+      name: "test-candidate",
       ...CURRENT_REPLAY_POLICY,
       temporalPolicyVersion: "handoff-temporal-candidate",
       temporalPolicy: {
@@ -192,9 +195,26 @@ test("records committed temporal state and provider failures as ordered events",
           windowSamples: 4,
         },
       },
-    });
+      budgets: {
+        maxAccuracyDrop: 0,
+        maxFalsePositiveIncrease: 0,
+        maxFalseNegativeIncrease: 0,
+        maxAbstentionIncrease: 0,
+        maxBrierIncrease: 0,
+        maxCalibrationErrorIncrease: 0,
+      },
+    }));
+    assert.throws(() => parseCandidatePolicy('{"name":"incomplete"}'), TypeError);
+    const candidate = evaluatePolicy(events, labels, candidatePolicy);
     assert.equal(candidate.metrics.exactAccuracy, 0.75);
     assert.equal(candidate.metrics.falseNegativeFrames, 1);
+    assert.deepEqual(checkRegression(metrics, candidate.metrics, {
+      ...candidatePolicy.budgets,
+      maxAccuracyDrop: 0.25,
+      maxFalseNegativeIncrease: 1,
+      maxAbstentionIncrease: 0.25,
+    }), []);
+    assert.match(checkRegression(metrics, candidate.metrics, candidatePolicy.budgets).join(" "), /Accuracy drop/);
     assert.equal(
       replayDecisionEvents([
         { ...events[0], commit: { ...events[0].commit, to: "HANDOFF" } },

@@ -45,7 +45,8 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm test
 npm run eval:scenarios
-npm run evaluate -- [ledger.jsonl] [outcomes.jsonl]
+npm run evaluate -- [ledger.jsonl] [outcomes.jsonl] [candidate.json]
+npm run evaluate:check -- [ledger.jsonl] [outcomes.jsonl] [candidate.json]
 npm run simulate
 npm run simulate:faults
 npm run replay
@@ -63,7 +64,7 @@ Outcome labels are separate JSONL records so the immutable decision ledger is ne
 {"sessionId":"session-id","sequence":0,"expectedMode":"OBSERVING"}
 ```
 
-`npm run evaluate` compares the current policy with a conservative shadow policy over labeled v2 events. It reports label coverage, exact accuracy, false-positive and false-negative frames, abstention, Brier score, calibration error, and changed committed decisions. The shadow run reuses recorded signal frames and never calls the provider.
+`npm run evaluate` compares the current policy with the versioned shadow policy in `eval/candidate-policy.json` over labeled v2 events. It reports label coverage, exact accuracy, false-positive and false-negative frames, abstention, Brier score, calibration error, and changed committed decisions. The shadow run reuses recorded signal frames and never calls the provider. `npm run evaluate:check` exits unsuccessfully when a configured regression budget is exceeded.
 
 ## Stream stability
 

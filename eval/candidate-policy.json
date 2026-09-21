@@ -1,0 +1,40 @@
+{
+  "name": "conservative-handoff-v1",
+  "policyVersion": "handoff-v1-candidate",
+  "temporalPolicyVersion": "handoff-temporal-v1-candidate",
+  "thresholds": {
+    "handoffRequested": 0.7,
+    "interactionAppropriate": 0.8,
+    "handoffIntentAmbiguousMax": 0.35,
+    "handoffDistanceMeters": {
+      "min": 0.35,
+      "max": 1.2
+    }
+  },
+  "temporalPolicy": {
+    "enterHandoff": {
+      "intentAtLeast": 0.8,
+      "interactionAppropriateAtLeast": 0.8,
+      "ambiguityAtMost": 0.35,
+      "requiredSamples": 4,
+      "windowSamples": 5
+    },
+    "exitHandoff": {
+      "intentAtMost": 0.55,
+      "interactionAppropriateAtMost": 0.65,
+      "ambiguityAtLeast": 0.55,
+      "requiredSamples": 2,
+      "windowSamples": 3
+    },
+    "cooldownMs": 500,
+    "staleAfterMs": 1000
+  },
+  "budgets": {
+    "maxAccuracyDrop": 0,
+    "maxFalsePositiveIncrease": 0,
+    "maxFalseNegativeIncrease": 0,
+    "maxAbstentionIncrease": 0,
+    "maxBrierIncrease": 0,
+    "maxCalibrationErrorIncrease": 0
+  }
+}
