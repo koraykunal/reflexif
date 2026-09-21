@@ -30,6 +30,7 @@ test("turns flickering proposals into one stable transition", () => {
   const { steps, metrics } = simulateStream(
     snapshot,
     intent.map((handoffRequested, index) => ({
+      sequence: index,
       atMs: index * 200,
       expectedMode: "HANDOFF" as const,
       signals: { ...clearHandoff, handoffRequested },
@@ -50,9 +51,9 @@ test("turns flickering proposals into one stable transition", () => {
 test("applies deterministic stops immediately and clears old evidence", () => {
   const handoff = decide(snapshot, clearHandoff);
   let state = createTemporalState("OBSERVING");
-  state = advanceTemporal(state, { decision: handoff, signals: clearHandoff }, 0);
-  state = advanceTemporal(state, { decision: handoff, signals: clearHandoff }, 200);
-  state = advanceTemporal(state, { decision: handoff, signals: clearHandoff }, 400);
+  state = advanceTemporal(state, { sequence: 0, decision: handoff, signals: clearHandoff }, 0);
+  state = advanceTemporal(state, { sequence: 1, decision: handoff, signals: clearHandoff }, 200);
+  state = advanceTemporal(state, { sequence: 2, decision: handoff, signals: clearHandoff }, 400);
   assert.equal(state.committedMode, "HANDOFF");
 
   const blockedSnapshot = {
@@ -61,20 +62,46 @@ test("applies deterministic stops immediately and clears old evidence", () => {
     robot: { ...snapshot.robot, mode: "HANDOFF" as const },
   };
   const blocked = decide(blockedSnapshot, clearHandoff);
-  state = advanceTemporal(state, { decision: blocked, signals: clearHandoff }, 600);
+  state = advanceTemporal(state, { sequence: 3, decision: blocked, signals: clearHandoff }, 600);
   assert.equal(state.committedMode, "OBSERVING");
   assert.equal(state.samples.length, 0);
 
-  state = advanceTemporal(state, { decision: handoff, signals: clearHandoff }, 1_200);
+  state = advanceTemporal(state, { sequence: 4, decision: handoff, signals: clearHandoff }, 1_200);
   assert.equal(state.committedMode, "OBSERVING");
 });
 
 test("falls back from an active mode when signals become stale", () => {
   const handoff = decide(snapshot, clearHandoff);
-  const fresh = advanceTemporal(createTemporalState("HANDOFF"), { decision: handoff, signals: clearHandoff }, 1_000);
+  const fresh = advanceTemporal(
+    createTemporalState("HANDOFF"),
+    { sequence: 0, decision: handoff, signals: clearHandoff },
+    1_000,
+  );
 
   assert.equal(advanceTemporal(fresh, null, 2_000).committedMode, "HANDOFF");
   assert.equal(advanceTemporal(fresh, null, 2_001).committedMode, "OBSERVING");
+});
+
+test("does not count duplicate or out-of-order frames as new evidence", () => {
+  const handoff = decide(snapshot, clearHandoff);
+  let state = createTemporalState("OBSERVING");
+
+  state = advanceTemporal(state, { sequence: 0, decision: handoff, signals: clearHandoff }, 0);
+  state = advanceTemporal(state, { sequence: 1, decision: handoff, signals: clearHandoff }, 200);
+  state = advanceTemporal(state, { sequence: 1, decision: handoff, signals: clearHandoff }, 300);
+  assert.equal(state.committedMode, "OBSERVING");
+  assert.equal(state.samples.length, 2);
+
+  state = advanceTemporal(state, { sequence: 2, decision: handoff, signals: clearHandoff }, 400);
+  assert.equal(state.committedMode, "HANDOFF");
+
+  const observing = decide(snapshot, { ...clearHandoff, handoffRequested: 0.1 });
+  const unchanged = advanceTemporal(
+    state,
+    { sequence: 0, decision: observing, signals: { ...clearHandoff, handoffRequested: 0.1 } },
+    600,
+  );
+  assert.equal(unchanged, state);
 });
 
 test("supports duration-based signal evidence", () => {

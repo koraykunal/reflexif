@@ -3,6 +3,7 @@ import { advanceTemporal, createTemporalState } from "./temporal.ts";
 import type { RobotMode, RobotSnapshot, SemanticSignals } from "./types.ts";
 
 export type SimulationFrame = {
+  sequence: number;
   atMs: number;
   signals: SemanticSignals;
   expectedMode: RobotMode;
@@ -40,7 +41,11 @@ export function simulateStream(
   const steps = frames.map((frame) => {
     const currentSnapshot = { ...snapshot, robot: { ...snapshot.robot, mode: temporal.committedMode } };
     const decision = decide(currentSnapshot, frame.signals);
-    temporal = advanceTemporal(temporal, { decision, signals: frame.signals }, frame.atMs);
+    temporal = advanceTemporal(
+      temporal,
+      { sequence: frame.sequence, decision, signals: frame.signals },
+      frame.atMs,
+    );
     return { ...frame, rawMode: decision.to, stableMode: temporal.committedMode };
   });
 

@@ -9,6 +9,7 @@ const snapshot: RobotSnapshot = {
 
 const intent = [0.81, 0.88, 0.55, 0.76, 0.91, 0.51, 0.95];
 const frames: SimulationFrame[] = intent.map((handoffRequested, index) => ({
+  sequence: index,
   atMs: index * 200,
   expectedMode: "HANDOFF",
   signals: {

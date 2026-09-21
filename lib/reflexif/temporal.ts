@@ -28,12 +28,14 @@ export type TemporalState = {
   committedMode: RobotMode;
   pendingMode: RobotMode | null;
   pendingSinceMs: number | null;
+  lastSequence: number | null;
   lastSignalAtMs: number | null;
   cooldownUntilMs: number | null;
   samples: SignalSample[];
 };
 
 export type TemporalInput = {
+  sequence: number;
   decision: PolicyDecision;
   signals: SemanticSignals;
 };
@@ -43,6 +45,7 @@ export function createTemporalState(mode: RobotMode): TemporalState {
     committedMode: mode,
     pendingMode: null,
     pendingSinceMs: null,
+    lastSequence: null,
     lastSignalAtMs: null,
     cooldownUntilMs: null,
     samples: [],
@@ -56,6 +59,14 @@ export function advanceTemporal(
 ): TemporalState {
   if (state.lastSignalAtMs !== null && nowMs < state.lastSignalAtMs) {
     throw new RangeError("Temporal timestamps must be monotonic.");
+  }
+
+  if (input !== null && (!Number.isInteger(input.sequence) || input.sequence < 0)) {
+    throw new RangeError("Temporal sequence numbers must be non-negative integers.");
+  }
+
+  if (input !== null && state.lastSequence !== null && input.sequence <= state.lastSequence) {
+    return state;
   }
 
   if (input === null) {
@@ -91,6 +102,7 @@ export function advanceTemporal(
       committedMode: input.decision.to,
       pendingMode: null,
       pendingSinceMs: null,
+      lastSequence: input.sequence,
       lastSignalAtMs: nowMs,
       cooldownUntilMs:
         wasHandoff && input.decision.to !== "HANDOFF"
@@ -102,13 +114,21 @@ export function advanceTemporal(
 
   if (wasHandoff) {
     if (!exitHandoff.test(samples)) {
-      return { ...current, pendingMode: null, pendingSinceMs: null, lastSignalAtMs: nowMs, samples };
+      return {
+        ...current,
+        pendingMode: null,
+        pendingSinceMs: null,
+        lastSequence: input.sequence,
+        lastSignalAtMs: nowMs,
+        samples,
+      };
     }
     return {
       ...current,
       committedMode: "OBSERVING",
       pendingMode: null,
       pendingSinceMs: null,
+      lastSequence: input.sequence,
       lastSignalAtMs: nowMs,
       cooldownUntilMs: nowMs + TEMPORAL_POLICY.cooldownMs,
       samples,
@@ -122,6 +142,7 @@ export function advanceTemporal(
       committedMode: "HANDOFF",
       pendingMode: null,
       pendingSinceMs: null,
+      lastSequence: input.sequence,
       lastSignalAtMs: nowMs,
       cooldownUntilMs: null,
       samples,
@@ -135,6 +156,7 @@ export function advanceTemporal(
     pendingMode: input.decision.to === "HANDOFF" && !coolingDown ? "HANDOFF" : null,
     pendingSinceMs:
       input.decision.to === "HANDOFF" && !coolingDown ? (current.pendingSinceMs ?? nowMs) : null,
+    lastSequence: input.sequence,
     lastSignalAtMs: nowMs,
     samples,
   };

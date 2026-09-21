@@ -99,7 +99,15 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
 
       setResult(payload);
       setTemporal((current) =>
-        advanceTemporal(current, { decision: payload.decision, signals: payload.frame }, performance.now()),
+        advanceTemporal(
+          current,
+          {
+            sequence: (current.lastSequence ?? -1) + 1,
+            decision: payload.decision,
+            signals: payload.frame,
+          },
+          performance.now(),
+        ),
       );
       setRequestState("success");
     } catch (requestError) {
