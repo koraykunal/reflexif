@@ -1,5 +1,7 @@
 import { all, any, signal, type SignalSample } from "./temporal-signal.ts";
-import type { PolicyDecision, RobotMode, SemanticSignals } from "./types.ts";
+import type { DecisionCommit, PolicyDecision, RobotMode, SemanticSignals } from "./types.ts";
+
+export const TEMPORAL_POLICY_VERSION = "handoff-temporal-v1";
 
 export const TEMPORAL_POLICY = {
   enterHandoff: { intentAtLeast: 0.75, requiredSamples: 3, windowSamples: 4 },
@@ -49,6 +51,24 @@ export function createTemporalState(mode: RobotMode): TemporalState {
     lastSignalAtMs: null,
     cooldownUntilMs: null,
     samples: [],
+  };
+}
+
+export function summarizeTemporalCommit(
+  before: TemporalState,
+  after: TemporalState,
+  proposal: PolicyDecision | null,
+): DecisionCommit {
+  const changed = before.committedMode !== after.committedMode;
+  return {
+    from: before.committedMode,
+    to: after.committedMode,
+    changed,
+    reason: changed
+      ? (proposal?.reason ?? "The signal stream became stale.")
+      : proposal && proposal.to !== after.committedMode
+        ? "Temporal evidence is still pending."
+        : (proposal?.reason ?? "No fresh signal was available."),
   };
 }
 

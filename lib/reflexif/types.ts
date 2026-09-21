@@ -1,3 +1,5 @@
+import type { TemporalState } from "./temporal";
+
 export type RobotMode = "IDLE" | "OBSERVING" | "HANDOFF";
 
 export type RobotSnapshot = {
@@ -50,9 +52,26 @@ export type PolicyDecision = {
   gates: PolicyGate[];
 };
 
+export type DecisionCommit = {
+  from: RobotMode;
+  to: RobotMode;
+  changed: boolean;
+  reason: string;
+};
+
 export type EvaluationResult = {
   decisionId: string;
   snapshot: RobotSnapshot;
   frame: SignalFrame;
   decision: PolicyDecision;
+  temporalBefore: TemporalState;
+  temporalAfter: TemporalState;
+  commit: DecisionCommit;
+};
+
+export type EvaluationErrorResult = {
+  error: string;
+  decisionId?: string;
+  temporalAfter?: TemporalState;
+  commit?: DecisionCommit;
 };

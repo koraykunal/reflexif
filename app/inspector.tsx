@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { advanceTemporal, createTemporalState } from "@/lib/reflexif/temporal";
-import type { EvaluationResult, RobotMode, RobotSnapshot } from "@/lib/reflexif/types";
+import { useRef, useState, type FormEvent } from "react";
+import { createTemporalState } from "@/lib/reflexif/temporal";
+import type {
+  EvaluationErrorResult,
+  EvaluationResult,
+  RobotMode,
+  RobotSnapshot,
+} from "@/lib/reflexif/types";
 
 const initialSnapshot: RobotSnapshot = {
   person: {
@@ -70,6 +75,8 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [temporal, setTemporal] = useState(() => createTemporalState(initialSnapshot.robot.mode));
+  const sessionId = useRef<string | null>(null);
+  const sequence = useRef(0);
 
   const updatePerson = <K extends keyof RobotSnapshot["person"]>(key: K, value: RobotSnapshot["person"][K]) =>
     setSnapshot((current) => ({ ...current, person: { ...current.person, [key]: value } }));
@@ -87,28 +94,30 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...snapshot,
-          robot: { ...snapshot.robot, mode: temporal.committedMode },
+          sessionId: (sessionId.current ??= crypto.randomUUID()),
+          sequence: sequence.current,
+          snapshot: {
+            ...snapshot,
+            robot: { ...snapshot.robot, mode: temporal.committedMode },
+          },
         }),
       });
-      const payload = (await response.json()) as EvaluationResult | { error?: string };
+      const payload = (await response.json()) as EvaluationResult | EvaluationErrorResult;
 
-      if (!response.ok || !("frame" in payload)) {
-        throw new Error("error" in payload && payload.error ? payload.error : "Evaluation failed.");
+      if ("error" in payload) {
+        if (payload.decisionId) sequence.current += 1;
+        if (payload.temporalAfter) {
+          setTemporal(payload.temporalAfter);
+          setResult(null);
+        }
+        throw new Error(payload.error || "Evaluation failed.");
       }
 
+      if (!response.ok) throw new Error("Evaluation failed.");
+
       setResult(payload);
-      setTemporal((current) =>
-        advanceTemporal(
-          current,
-          {
-            sequence: (current.lastSequence ?? -1) + 1,
-            decision: payload.decision,
-            signals: payload.frame,
-          },
-          performance.now(),
-        ),
-      );
+      sequence.current += 1;
+      setTemporal(payload.temporalAfter);
       setRequestState("success");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Evaluation failed.");
@@ -200,6 +209,8 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
                     robot: { ...current.robot, mode },
                   }));
                   setTemporal(createTemporalState(mode));
+                  sessionId.current = null;
+                  sequence.current = 0;
                   setResult(null);
                 }}
               >
@@ -265,11 +276,11 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
           {result ? (
             <>
               <div className="transition">
-                <span>{temporal.committedMode}</span>
+                <span>{result.commit.from}</span>
                 <span className="transition-arrow">TO</span>
-                <strong>{result.decision.to}</strong>
+                <strong>{result.commit.to}</strong>
               </div>
-              <p className="decision-reason">{result.decision.reason}</p>
+              <p className="decision-reason">{result.commit.reason}</p>
               <p className="temporal-summary">
                 {temporal.pendingMode
                   ? `${temporal.pendingMode} requires stable evidence before it is committed.`
