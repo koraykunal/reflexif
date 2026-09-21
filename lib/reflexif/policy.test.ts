@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { decide } from "./policy.ts";
-import { simulateStream } from "./simulator.ts";
+import { injectStreamFaults, simulateFaultyStream, simulateStream, type SimulationFrame } from "./simulator.ts";
 import { advanceTemporal, createTemporalState } from "./temporal.ts";
 import { signal, type SignalSample } from "./temporal-signal.ts";
 import type { RobotSnapshot, SemanticSignals } from "./types.ts";
@@ -102,6 +102,50 @@ test("does not count duplicate or out-of-order frames as new evidence", () => {
     600,
   );
   assert.equal(unchanged, state);
+});
+
+test("injects seeded stream faults without letting duplicates add evidence", () => {
+  const frames: SimulationFrame[] = Array.from({ length: 4 }, (_, sequence) => ({
+    sequence,
+    atMs: sequence * 200,
+    expectedMode: "HANDOFF",
+    signals: clearHandoff,
+  }));
+  const config = {
+    seed: 42,
+    signalNoise: 0.1,
+    missingRate: 0.1,
+    timeoutRate: 0.1,
+    duplicateRate: 0.5,
+    lateRate: 0.5,
+  };
+
+  assert.deepEqual(injectStreamFaults(frames, config), injectStreamFaults(frames, config));
+
+  const { steps, metrics } = simulateFaultyStream(snapshot, frames, {
+    seed: 42,
+    duplicateRate: 1,
+  });
+  assert.equal(metrics.duplicateFrames, frames.length);
+  assert.equal(metrics.rejectedFrames, frames.length);
+  assert.equal(metrics.stableTransitions, 1);
+  assert.equal(metrics.stableOscillations, 0);
+  assert.equal(metrics.falseActivations, 0);
+  assert.equal(steps.at(-1)?.stableMode, "HANDOFF");
+
+  assert.ok(injectStreamFaults(frames, { seed: 1, missingRate: 1 }).every((event) => event.fault === "missing"));
+  assert.ok(injectStreamFaults(frames, { seed: 1, timeoutRate: 1 }).every((event) => event.fault === "timeout"));
+  assert.ok(injectStreamFaults(frames, { seed: 1, lateRate: 1 }).every((event) => event.fault === "late"));
+
+  const staleFrames: SimulationFrame[] = Array.from({ length: 9 }, (_, sequence) => ({
+    sequence,
+    atMs: sequence * 250,
+    expectedMode: "HANDOFF",
+    signals: clearHandoff,
+  }));
+  const stale = simulateFaultyStream(snapshot, staleFrames, { seed: 716, missingRate: 0.5 });
+  assert.equal(stale.steps[2].stableMode, "HANDOFF");
+  assert.equal(stale.steps.at(-1)?.stableMode, "OBSERVING");
 });
 
 test("supports duration-based signal evidence", () => {
