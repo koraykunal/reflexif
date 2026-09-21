@@ -12,7 +12,7 @@ import {
   SequenceConflictError,
 } from "./ledger.ts";
 import { decide, POLICY_VERSION } from "./policy.ts";
-import { replayDecisions } from "./replay.ts";
+import { replayDecisionEvents, replayDecisions } from "./replay.ts";
 import {
   advanceTemporal,
   createTemporalState,
@@ -109,7 +109,15 @@ test("records committed temporal state and provider failures as ordered events",
     );
 
     const events = await readDecisionEvents(ledgerPath);
+    const replay = replayDecisionEvents(events);
     assert.equal(events.length, 2);
+    assert.equal(replay.every((result) => !result.changed), true);
+    assert.equal(
+      replayDecisionEvents([
+        { ...events[0], commit: { ...events[0].commit, to: "HANDOFF" } },
+      ])[0].changed,
+      true,
+    );
     assert.equal(failure.status, "provider_error");
     assert.equal(failure.commit.to, "OBSERVING");
     assert.equal((await readLatestDecisionEvent(sessionId, ledgerPath))?.id, failure.id);

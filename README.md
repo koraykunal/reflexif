@@ -54,7 +54,7 @@ npm run build
 
 `eval:scenarios` sends ten small live requests to Jev. It checks clear handoffs, ambiguous gestures, absent people, empty robot hands, blocked paths, and out-of-range interactions against expected transitions.
 
-Every successful API evaluation is written to `.reflexif/decisions.jsonl`. `npm run replay` evaluates those stored signal frames with the current policy without calling Jev again. Pass a different JSONL path after `--` when needed.
+Every evaluation attempt is written to `.reflexif/decisions.jsonl`, including provider failures. Each v2 event records the raw proposal, temporal state before and after evaluation, and the final committed decision. `npm run replay` reconstructs those transitions with the current deterministic and temporal policies without calling Jev again. Pass a different JSONL path after `--` when needed.
 
 ## Stream stability
 
@@ -89,5 +89,7 @@ The current runtime supports `above`, `below`, `samples`, `for`, `all`, `any`, a
 - Stability metrics: transitions, oscillations, false activations, decision latency, and abstention
 - Provider-independent evaluation contract and versioned trace metadata
 - Seeded signal-noise and provider-failure injection
+- Event Ledger v2 with ordered sessions and committed decisions
+- Deterministic temporal replay without model inference
 
-The next milestone is an event ledger that records temporal state and the final committed decision. Outcome calibration, counterfactual replay, shadow policies, cloud hosting, and the physical robot bridge follow only after stream reliability is measurable.
+Outcome calibration and shadow-policy comparison are the next milestone. Cloud hosting and the physical robot bridge follow only after those offline evaluations are useful on recorded data.
