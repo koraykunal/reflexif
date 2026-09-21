@@ -50,13 +50,10 @@ const current = evaluatePolicy(events, labels, CURRENT_REPLAY_POLICY);
 const candidate = evaluatePolicy(events, labels, candidatePolicy);
 
 const rows = [
-  ["coverage", current.metrics.coverage, candidate.metrics.coverage],
   ["exact_accuracy", current.metrics.exactAccuracy, candidate.metrics.exactAccuracy],
   ["false_positive_frames", current.metrics.falsePositiveFrames, candidate.metrics.falsePositiveFrames],
   ["false_negative_frames", current.metrics.falseNegativeFrames, candidate.metrics.falseNegativeFrames],
   ["abstention_rate", current.metrics.abstentionRate, candidate.metrics.abstentionRate],
-  ["brier_score", current.metrics.brierScore, candidate.metrics.brierScore],
-  ["calibration_error", current.metrics.calibrationError, candidate.metrics.calibrationError],
 ] as const;
 
 console.table(
@@ -76,6 +73,9 @@ const changed = candidate.replay.filter(
 ).length;
 console.log(
   `${labels.length} labels, ${events.length} v2 events, ${changed} decision changes for ${candidatePolicy.name}.`,
+);
+console.log(
+  `Coverage ${current.metrics.coverage.toFixed(4)}, semantic Brier ${current.metrics.brierScore?.toFixed(4) ?? "-"}, calibration error ${current.metrics.calibrationError?.toFixed(4) ?? "-"}.`,
 );
 
 if (check) {

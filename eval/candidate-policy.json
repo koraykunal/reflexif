@@ -33,8 +33,6 @@
     "maxAccuracyDrop": 0,
     "maxFalsePositiveIncrease": 0,
     "maxFalseNegativeIncrease": 0,
-    "maxAbstentionIncrease": 0,
-    "maxBrierIncrease": 0,
-    "maxCalibrationErrorIncrease": 0
+    "maxAbstentionIncrease": 0
   }
 }

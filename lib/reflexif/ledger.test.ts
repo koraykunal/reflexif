@@ -168,7 +168,12 @@ test("records committed temporal state and provider failures as ordered events",
     const events = await readDecisionEvents(ledgerPath);
     const replay = replayDecisionEvents(events);
     const labels: OutcomeLabel[] = ["OBSERVING", "OBSERVING", "HANDOFF", "OBSERVING"].map(
-      (expectedMode, sequence) => ({ sessionId, sequence, expectedMode: expectedMode as OutcomeLabel["expectedMode"] }),
+      (expectedMode, sequence) => ({
+        sessionId,
+        sequence,
+        expectedMode: expectedMode as OutcomeLabel["expectedMode"],
+        ...(sequence < 3 ? { expectedHandoffRequested: true } : {}),
+      }),
     );
     assert.deepEqual(parseOutcomeLabels(labels.map((label) => JSON.stringify(label)).join("\n")), labels);
     assert.throws(() => parseOutcomeLabels('{"sessionId":"bad"}'), SyntaxError);
@@ -182,7 +187,7 @@ test("records committed temporal state and provider failures as ordered events",
     assert.equal(metrics.exactAccuracy, 1);
     assert.equal(metrics.falsePositiveFrames, 0);
     assert.equal(metrics.falseNegativeFrames, 0);
-    assert.notEqual(metrics.brierScore, null);
+    assert.equal(metrics.brierScore?.toFixed(4), "0.0081");
     const candidatePolicy = parseCandidatePolicy(JSON.stringify({
       name: "test-candidate",
       ...CURRENT_REPLAY_POLICY,
@@ -200,8 +205,6 @@ test("records committed temporal state and provider failures as ordered events",
         maxFalsePositiveIncrease: 0,
         maxFalseNegativeIncrease: 0,
         maxAbstentionIncrease: 0,
-        maxBrierIncrease: 0,
-        maxCalibrationErrorIncrease: 0,
       },
     }));
     assert.throws(() => parseCandidatePolicy('{"name":"incomplete"}'), TypeError);

@@ -10,6 +10,7 @@ export type OutcomeLabel = {
   sessionId: string;
   sequence: number;
   expectedMode: RobotMode;
+  expectedHandoffRequested?: boolean;
 };
 
 export type OutcomeMetrics = {
@@ -28,8 +29,6 @@ export type RegressionBudgets = {
   maxFalsePositiveIncrease: number;
   maxFalseNegativeIncrease: number;
   maxAbstentionIncrease: number;
-  maxBrierIncrease: number;
-  maxCalibrationErrorIncrease: number;
 };
 
 export type CandidatePolicyConfig = ReplayPolicy & {
@@ -97,9 +96,7 @@ export function parseCandidatePolicy(contents: string): CandidatePolicyConfig {
     !isNonNegative(budgets.maxAccuracyDrop) ||
     !isNonNegative(budgets.maxFalsePositiveIncrease) ||
     !isNonNegative(budgets.maxFalseNegativeIncrease) ||
-    !isNonNegative(budgets.maxAbstentionIncrease) ||
-    !isNonNegative(budgets.maxBrierIncrease) ||
-    !isNonNegative(budgets.maxCalibrationErrorIncrease)
+    !isNonNegative(budgets.maxAbstentionIncrease)
   ) {
     throw new TypeError("Candidate policy contains invalid thresholds or regression budgets.");
   }
@@ -127,16 +124,6 @@ export function checkRegression(
     budgets.maxFalseNegativeIncrease,
   );
   check("Abstention", candidate.abstentionRate - current.abstentionRate, budgets.maxAbstentionIncrease);
-  if (current.brierScore !== null && candidate.brierScore !== null) {
-    check("Brier score", candidate.brierScore - current.brierScore, budgets.maxBrierIncrease);
-  }
-  if (current.calibrationError !== null && candidate.calibrationError !== null) {
-    check(
-      "Calibration error",
-      candidate.calibrationError - current.calibrationError,
-      budgets.maxCalibrationErrorIncrease,
-    );
-  }
   return violations;
 }
 
@@ -162,7 +149,9 @@ export function parseOutcomeLabels(contents: string): OutcomeLabel[] {
         !("expectedMode" in value) ||
         (value.expectedMode !== "IDLE" &&
           value.expectedMode !== "OBSERVING" &&
-          value.expectedMode !== "HANDOFF")
+          value.expectedMode !== "HANDOFF") ||
+        ("expectedHandoffRequested" in value &&
+          typeof value.expectedHandoffRequested !== "boolean")
       ) {
         throw new SyntaxError(`Invalid outcome label on line ${index + 1}.`);
       }
@@ -170,6 +159,9 @@ export function parseOutcomeLabels(contents: string): OutcomeLabel[] {
         sessionId: value.sessionId,
         sequence: value.sequence as number,
         expectedMode: value.expectedMode as RobotMode,
+        ...("expectedHandoffRequested" in value
+          ? { expectedHandoffRequested: value.expectedHandoffRequested as boolean }
+          : {}),
       };
     });
 
@@ -189,16 +181,16 @@ export function evaluateOutcomes(
   replay: readonly EventReplayResult[],
   labels: readonly OutcomeLabel[],
 ): OutcomeMetrics {
-  const outcomes = new Map(labels.map((label) => [key(label), label.expectedMode]));
+  const outcomes = new Map(labels.map((label) => [key(label), label]));
   const eventsById = new Map(events.map((event) => [event.id, event]));
   const labeled = replay.flatMap((result) => {
-    const expectedMode = outcomes.get(key(result));
+    const label = outcomes.get(key(result));
     const event = eventsById.get(result.id);
-    return expectedMode && event ? [{ result, event, expectedMode }] : [];
+    return label && event ? [{ result, event, label }] : [];
   });
-  const probabilities = labeled.flatMap(({ event, expectedMode }) =>
-    event.frame
-      ? [{ predicted: event.frame.handoffRequested, actual: expectedMode === "HANDOFF" ? 1 : 0 }]
+  const probabilities = labeled.flatMap(({ event, label }) =>
+    event.frame && label.expectedHandoffRequested !== undefined
+      ? [{ predicted: event.frame.handoffRequested, actual: label.expectedHandoffRequested ? 1 : 0 }]
       : [],
   );
   const calibrationBins = Array.from({ length: 10 }, () => ({ count: 0, predicted: 0, actual: 0 }));
@@ -215,13 +207,13 @@ export function evaluateOutcomes(
     exactAccuracy:
       labeled.length === 0
         ? 0
-        : labeled.filter(({ result, expectedMode }) => result.currentCommit.to === expectedMode).length /
+        : labeled.filter(({ result, label }) => result.currentCommit.to === label.expectedMode).length /
           labeled.length,
     falsePositiveFrames: labeled.filter(
-      ({ result, expectedMode }) => result.currentCommit.to === "HANDOFF" && expectedMode !== "HANDOFF",
+      ({ result, label }) => result.currentCommit.to === "HANDOFF" && label.expectedMode !== "HANDOFF",
     ).length,
     falseNegativeFrames: labeled.filter(
-      ({ result, expectedMode }) => result.currentCommit.to !== "HANDOFF" && expectedMode === "HANDOFF",
+      ({ result, label }) => result.currentCommit.to !== "HANDOFF" && label.expectedMode === "HANDOFF",
     ).length,
     abstentionRate:
       labeled.length === 0

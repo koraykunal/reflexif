@@ -45,6 +45,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm test
 npm run eval:scenarios
+npm run eval:corpus
 npm run evaluate -- [ledger.jsonl] [outcomes.jsonl] [candidate.json]
 npm run evaluate:check -- [ledger.jsonl] [outcomes.jsonl] [candidate.json]
 npm run simulate
@@ -56,13 +57,17 @@ npm run build
 
 `eval:scenarios` sends ten small live requests to Jev. It checks clear handoffs, ambiguous gestures, absent people, empty robot hands, blocked paths, and out-of-range interactions against expected transitions.
 
+`eval:corpus` runs the current policy against the versioned `handoff-reference-v1` stream corpus. Its 24 labeled events cover stable entry, flicker, ambiguity, deterministic blocking, stale fallback, hysteretic exit, absent people, and distance gates. CI requires full behavioral coverage with no committed-mode mismatch. This deterministic reference corpus protects runtime behavior; it is not a substitute for calibration on independently collected production outcomes.
+
 Every evaluation attempt is written to `.reflexif/decisions.jsonl`, including provider failures. Each v2 event records the raw proposal, temporal state before and after evaluation, and the final committed decision. `npm run replay` reconstructs those transitions with the current deterministic and temporal policies without calling Jev again. Pass a different JSONL path after `--` when needed.
 
 Outcome labels are separate JSONL records so the immutable decision ledger is never rewritten:
 
 ```json
-{"sessionId":"session-id","sequence":0,"expectedMode":"OBSERVING"}
+{"sessionId":"session-id","sequence":0,"expectedMode":"OBSERVING","expectedHandoffRequested":true}
 ```
+
+`expectedMode` labels committed behavior. The optional `expectedHandoffRequested` label is separate semantic ground truth; Brier score and calibration error are reported only for rows that include it. This avoids treating deliberate temporal waiting or deterministic safety blocks as model calibration errors.
 
 `npm run evaluate` compares the current policy with the versioned shadow policy in `eval/candidate-policy.json` over labeled v2 events. It reports label coverage, exact accuracy, false-positive and false-negative frames, abstention, Brier score, calibration error, and changed committed decisions. The shadow run reuses recorded signal frames and never calls the provider. `npm run evaluate:check` exits unsuccessfully when a configured regression budget is exceeded.
 
@@ -102,4 +107,10 @@ The current runtime supports `above`, `below`, `samples`, `for`, `all`, `any`, a
 - Event Ledger v2 with ordered sessions and committed decisions
 - Deterministic temporal replay without model inference
 
-Outcome calibration and shadow-policy comparison are the next milestone. Cloud hosting and the physical robot bridge follow only after those offline evaluations are useful on recorded data.
+## v0.3 — outcome evaluation in progress
+
+- Separate committed behavior labels from semantic ground truth
+- Versioned deterministic outcome corpus in CI
+- Shadow-policy comparison and configurable regression budgets
+
+Independent real-world outcome collection and calibration remain open. Cloud hosting and the physical robot bridge follow only after those offline evaluations are useful on recorded data.
