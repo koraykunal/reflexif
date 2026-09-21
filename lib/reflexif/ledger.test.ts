@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  evaluateOutcomes,
+  evaluatePolicy,
+  parseOutcomeLabels,
+  type OutcomeLabel,
+} from "./evaluation.ts";
+import {
   appendDecision,
   appendDecisionEvent,
   readDecisionEvents,
@@ -12,7 +18,7 @@ import {
   SequenceConflictError,
 } from "./ledger.ts";
 import { decide, POLICY_VERSION } from "./policy.ts";
-import { replayDecisionEvents, replayDecisions } from "./replay.ts";
+import { CURRENT_REPLAY_POLICY, replayDecisionEvents, replayDecisions } from "./replay.ts";
 import {
   advanceTemporal,
   createTemporalState,
@@ -88,30 +94,107 @@ test("records committed temporal state and provider failures as ordered events",
     };
     const first = await appendDecisionEvent(firstInput, null, ledgerPath);
 
-    const staleAfter = advanceTemporal(temporalAfter, null, 2_001);
-    const failure = await appendDecisionEvent(
+    const secondBefore = first.temporalAfter;
+    const secondDecision = decide(
+      { ...snapshot, robot: { ...snapshot.robot, mode: secondBefore.committedMode } },
+      frame,
+    );
+    const secondAfter = advanceTemporal(
+      secondBefore,
+      { sequence: 1, decision: secondDecision, signals: frame },
+      1_200,
+    );
+    const second = await appendDecisionEvent(
       {
-        sessionId,
+        ...firstInput,
         sequence: 1,
-        receivedAtMs: 2_001,
-        policyVersion: POLICY_VERSION,
-        temporalPolicyVersion: TEMPORAL_POLICY_VERSION,
-        status: "provider_error",
-        snapshot: { ...snapshot, robot: { ...snapshot.robot, mode: temporalAfter.committedMode } },
-        frame: null,
-        decision: null,
-        temporalBefore: temporalAfter,
-        temporalAfter: staleAfter,
-        commit: summarizeTemporalCommit(temporalAfter, staleAfter, null),
+        receivedAtMs: 1_200,
+        decision: secondDecision,
+        temporalBefore: secondBefore,
+        temporalAfter: secondAfter,
+        commit: summarizeTemporalCommit(secondBefore, secondAfter, secondDecision),
       },
       first.sequence,
       ledgerPath,
     );
 
+    const thirdBefore = second.temporalAfter;
+    const thirdDecision = decide(
+      { ...snapshot, robot: { ...snapshot.robot, mode: thirdBefore.committedMode } },
+      frame,
+    );
+    const thirdAfter = advanceTemporal(
+      thirdBefore,
+      { sequence: 2, decision: thirdDecision, signals: frame },
+      1_400,
+    );
+    const third = await appendDecisionEvent(
+      {
+        ...firstInput,
+        sequence: 2,
+        receivedAtMs: 1_400,
+        decision: thirdDecision,
+        temporalBefore: thirdBefore,
+        temporalAfter: thirdAfter,
+        commit: summarizeTemporalCommit(thirdBefore, thirdAfter, thirdDecision),
+      },
+      second.sequence,
+      ledgerPath,
+    );
+    assert.equal(third.commit.to, "HANDOFF");
+
+    const staleAfter = advanceTemporal(thirdAfter, null, 2_401);
+    const failure = await appendDecisionEvent(
+      {
+        sessionId,
+        sequence: 3,
+        receivedAtMs: 2_401,
+        policyVersion: POLICY_VERSION,
+        temporalPolicyVersion: TEMPORAL_POLICY_VERSION,
+        status: "provider_error",
+        snapshot: { ...snapshot, robot: { ...snapshot.robot, mode: thirdAfter.committedMode } },
+        frame: null,
+        decision: null,
+        temporalBefore: thirdAfter,
+        temporalAfter: staleAfter,
+        commit: summarizeTemporalCommit(thirdAfter, staleAfter, null),
+      },
+      third.sequence,
+      ledgerPath,
+    );
+
     const events = await readDecisionEvents(ledgerPath);
     const replay = replayDecisionEvents(events);
-    assert.equal(events.length, 2);
+    const labels: OutcomeLabel[] = ["OBSERVING", "OBSERVING", "HANDOFF", "OBSERVING"].map(
+      (expectedMode, sequence) => ({ sessionId, sequence, expectedMode: expectedMode as OutcomeLabel["expectedMode"] }),
+    );
+    assert.deepEqual(parseOutcomeLabels(labels.map((label) => JSON.stringify(label)).join("\n")), labels);
+    assert.throws(() => parseOutcomeLabels('{"sessionId":"bad"}'), SyntaxError);
+    assert.throws(
+      () => parseOutcomeLabels(`${JSON.stringify(labels[0])}\n${JSON.stringify(labels[0])}`),
+      /Duplicate outcome label/,
+    );
+    const metrics = evaluateOutcomes(events, replay, labels);
+    assert.equal(events.length, 4);
     assert.equal(replay.every((result) => !result.changed), true);
+    assert.equal(metrics.exactAccuracy, 1);
+    assert.equal(metrics.falsePositiveFrames, 0);
+    assert.equal(metrics.falseNegativeFrames, 0);
+    assert.notEqual(metrics.brierScore, null);
+    const candidate = evaluatePolicy(events, labels, {
+      ...CURRENT_REPLAY_POLICY,
+      temporalPolicyVersion: "handoff-temporal-candidate",
+      temporalPolicy: {
+        ...CURRENT_REPLAY_POLICY.temporalPolicy,
+        enterHandoff: {
+          ...CURRENT_REPLAY_POLICY.temporalPolicy.enterHandoff,
+          requiredSamples: 4,
+          windowSamples: 4,
+        },
+      },
+    });
+    assert.equal(candidate.metrics.exactAccuracy, 0.75);
+    assert.equal(candidate.metrics.falseNegativeFrames, 1);
     assert.equal(
       replayDecisionEvents([
         { ...events[0], commit: { ...events[0].commit, to: "HANDOFF" } },

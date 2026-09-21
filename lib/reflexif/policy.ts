@@ -7,7 +7,14 @@ import type {
 
 export const POLICY_VERSION = "handoff-v1";
 
-export const POLICY_THRESHOLDS = {
+export type PolicyThresholds = {
+  handoffRequested: number;
+  interactionAppropriate: number;
+  handoffIntentAmbiguousMax: number;
+  handoffDistanceMeters: { min: number; max: number };
+};
+
+export const POLICY_THRESHOLDS: PolicyThresholds = {
   handoffRequested: 0.7,
   interactionAppropriate: 0.8,
   handoffIntentAmbiguousMax: 0.35,
@@ -23,10 +30,14 @@ function probabilityGate(label: string, value: number, threshold: number, kind: 
   };
 }
 
-export function decide(snapshot: RobotSnapshot, signals: SemanticSignals): PolicyDecision {
+export function decide(
+  snapshot: RobotSnapshot,
+  signals: SemanticSignals,
+  thresholds: PolicyThresholds = POLICY_THRESHOLDS,
+): PolicyDecision {
   const distanceInRange =
-    snapshot.person.distanceMeters >= POLICY_THRESHOLDS.handoffDistanceMeters.min &&
-    snapshot.person.distanceMeters <= POLICY_THRESHOLDS.handoffDistanceMeters.max;
+    snapshot.person.distanceMeters >= thresholds.handoffDistanceMeters.min &&
+    snapshot.person.distanceMeters <= thresholds.handoffDistanceMeters.max;
   const gates: PolicyGate[] = [
     { label: "Person visible", value: snapshot.person.visible ? "yes" : "no", passed: snapshot.person.visible },
     { label: "Object held", value: snapshot.robot.holding ?? "none", passed: Boolean(snapshot.robot.holding) },
@@ -36,17 +47,17 @@ export function decide(snapshot: RobotSnapshot, signals: SemanticSignals): Polic
       value: `${snapshot.person.distanceMeters.toFixed(2)} m`,
       passed: distanceInRange,
     },
-    probabilityGate("Handoff intent", signals.handoffRequested, POLICY_THRESHOLDS.handoffRequested, "min"),
+    probabilityGate("Handoff intent", signals.handoffRequested, thresholds.handoffRequested, "min"),
     probabilityGate(
       "Interaction appropriate",
       signals.interactionAppropriate,
-      POLICY_THRESHOLDS.interactionAppropriate,
+      thresholds.interactionAppropriate,
       "min",
     ),
     probabilityGate(
       "Handoff ambiguity",
       signals.handoffIntentAmbiguous,
-      POLICY_THRESHOLDS.handoffIntentAmbiguousMax,
+      thresholds.handoffIntentAmbiguousMax,
       "max",
     ),
   ];
@@ -75,7 +86,7 @@ export function decide(snapshot: RobotSnapshot, signals: SemanticSignals): Polic
     };
   }
 
-  if (signals.handoffIntentAmbiguous > POLICY_THRESHOLDS.handoffIntentAmbiguousMax) {
+  if (signals.handoffIntentAmbiguous > thresholds.handoffIntentAmbiguousMax) {
     return {
       from: snapshot.robot.mode,
       to: "OBSERVING",
@@ -86,8 +97,8 @@ export function decide(snapshot: RobotSnapshot, signals: SemanticSignals): Polic
   }
 
   if (
-    signals.handoffRequested >= POLICY_THRESHOLDS.handoffRequested &&
-    signals.interactionAppropriate >= POLICY_THRESHOLDS.interactionAppropriate
+    signals.handoffRequested >= thresholds.handoffRequested &&
+    signals.interactionAppropriate >= thresholds.interactionAppropriate
   ) {
     return {
       from: snapshot.robot.mode,

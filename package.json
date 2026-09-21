@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test": "node --experimental-strip-types --test lib/reflexif/policy.test.ts lib/reflexif/ledger.test.ts",
     "eval:scenarios": "node --env-file=.env.local --experimental-strip-types eval/run.ts",
+    "evaluate": "node --experimental-strip-types eval/evaluate.ts",
     "simulate": "node --experimental-strip-types eval/stream.ts",
     "simulate:faults": "node --experimental-strip-types eval/faults.ts",
     "replay": "node --experimental-strip-types eval/replay.ts"

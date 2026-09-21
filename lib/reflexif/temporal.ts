@@ -3,28 +3,65 @@ import type { DecisionCommit, PolicyDecision, RobotMode, SemanticSignals } from 
 
 export const TEMPORAL_POLICY_VERSION = "handoff-temporal-v1";
 
-export const TEMPORAL_POLICY = {
-  enterHandoff: { intentAtLeast: 0.75, requiredSamples: 3, windowSamples: 4 },
-  exitHandoff: { intentAtMost: 0.55, requiredSamples: 2, windowSamples: 3 },
+export type TemporalPolicy = {
+  enterHandoff: {
+    intentAtLeast: number;
+    interactionAppropriateAtLeast: number;
+    ambiguityAtMost: number;
+    requiredSamples: number;
+    windowSamples: number;
+  };
+  exitHandoff: {
+    intentAtMost: number;
+    interactionAppropriateAtMost: number;
+    ambiguityAtLeast: number;
+    requiredSamples: number;
+    windowSamples: number;
+  };
+  cooldownMs: number;
+  staleAfterMs: number;
+};
+
+export const TEMPORAL_POLICY: TemporalPolicy = {
+  enterHandoff: {
+    intentAtLeast: 0.75,
+    interactionAppropriateAtLeast: 0.8,
+    ambiguityAtMost: 0.35,
+    requiredSamples: 3,
+    windowSamples: 4,
+  },
+  exitHandoff: {
+    intentAtMost: 0.55,
+    interactionAppropriateAtMost: 0.65,
+    ambiguityAtLeast: 0.55,
+    requiredSamples: 2,
+    windowSamples: 3,
+  },
   cooldownMs: 500,
   staleAfterMs: 1_000,
-} as const;
+};
 
-const enterHandoff = all(
-  signal("handoffRequested")
-    .above(TEMPORAL_POLICY.enterHandoff.intentAtLeast)
-    .samples(TEMPORAL_POLICY.enterHandoff.requiredSamples, TEMPORAL_POLICY.enterHandoff.windowSamples),
-  signal("interactionAppropriate").above(0.8),
-  signal("handoffIntentAmbiguous").below(0.35),
-);
+const enterHandoff = (policy: TemporalPolicy) =>
+  all(
+    signal("handoffRequested")
+      .above(policy.enterHandoff.intentAtLeast)
+      .samples(policy.enterHandoff.requiredSamples, policy.enterHandoff.windowSamples),
+    signal("interactionAppropriate").above(policy.enterHandoff.interactionAppropriateAtLeast),
+    signal("handoffIntentAmbiguous").below(policy.enterHandoff.ambiguityAtMost),
+  );
 
-const exitHandoff = any(
-  signal("handoffRequested")
-    .below(TEMPORAL_POLICY.exitHandoff.intentAtMost)
-    .samples(TEMPORAL_POLICY.exitHandoff.requiredSamples, TEMPORAL_POLICY.exitHandoff.windowSamples),
-  signal("interactionAppropriate").below(0.65).samples(2, 3),
-  signal("handoffIntentAmbiguous").above(0.55).samples(2, 3),
-);
+const exitHandoff = (policy: TemporalPolicy) =>
+  any(
+    signal("handoffRequested")
+      .below(policy.exitHandoff.intentAtMost)
+      .samples(policy.exitHandoff.requiredSamples, policy.exitHandoff.windowSamples),
+    signal("interactionAppropriate")
+      .below(policy.exitHandoff.interactionAppropriateAtMost)
+      .samples(policy.exitHandoff.requiredSamples, policy.exitHandoff.windowSamples),
+    signal("handoffIntentAmbiguous")
+      .above(policy.exitHandoff.ambiguityAtLeast)
+      .samples(policy.exitHandoff.requiredSamples, policy.exitHandoff.windowSamples),
+  );
 
 export type TemporalState = {
   committedMode: RobotMode;
@@ -76,6 +113,7 @@ export function advanceTemporal(
   state: TemporalState,
   input: TemporalInput | null,
   nowMs: number,
+  policy: TemporalPolicy = TEMPORAL_POLICY,
 ): TemporalState {
   if (state.lastSignalAtMs !== null && nowMs < state.lastSignalAtMs) {
     throw new RangeError("Temporal timestamps must be monotonic.");
@@ -90,26 +128,26 @@ export function advanceTemporal(
   }
 
   if (input === null) {
-    if (state.lastSignalAtMs === null || nowMs - state.lastSignalAtMs <= TEMPORAL_POLICY.staleAfterMs) return state;
+    if (state.lastSignalAtMs === null || nowMs - state.lastSignalAtMs <= policy.staleAfterMs) return state;
     return {
       ...state,
       committedMode: state.committedMode === "IDLE" ? "IDLE" : "OBSERVING",
       pendingMode: null,
       pendingSinceMs: null,
-      cooldownUntilMs: nowMs + TEMPORAL_POLICY.cooldownMs,
+      cooldownUntilMs: nowMs + policy.cooldownMs,
       samples: [],
     };
   }
 
   const signalGapMs = state.lastSignalAtMs === null ? 0 : nowMs - state.lastSignalAtMs;
   const current =
-    signalGapMs > TEMPORAL_POLICY.staleAfterMs
+    signalGapMs > policy.staleAfterMs
       ? {
           ...state,
           committedMode: state.committedMode === "IDLE" ? ("IDLE" as const) : ("OBSERVING" as const),
           pendingMode: null,
           pendingSinceMs: null,
-          cooldownUntilMs: nowMs + TEMPORAL_POLICY.cooldownMs,
+          cooldownUntilMs: nowMs + policy.cooldownMs,
           samples: [],
         }
       : state;
@@ -126,14 +164,14 @@ export function advanceTemporal(
       lastSignalAtMs: nowMs,
       cooldownUntilMs:
         wasHandoff && input.decision.to !== "HANDOFF"
-          ? nowMs + TEMPORAL_POLICY.cooldownMs
+          ? nowMs + policy.cooldownMs
           : current.cooldownUntilMs,
       samples: input.decision.to === "HANDOFF" ? samples : [],
     };
   }
 
   if (wasHandoff) {
-    if (!exitHandoff.test(samples)) {
+    if (!exitHandoff(policy).test(samples)) {
       return {
         ...current,
         pendingMode: null,
@@ -150,13 +188,13 @@ export function advanceTemporal(
       pendingSinceMs: null,
       lastSequence: input.sequence,
       lastSignalAtMs: nowMs,
-      cooldownUntilMs: nowMs + TEMPORAL_POLICY.cooldownMs,
+      cooldownUntilMs: nowMs + policy.cooldownMs,
       samples,
     };
   }
 
   const coolingDown = current.cooldownUntilMs !== null && nowMs < current.cooldownUntilMs;
-  if (!coolingDown && input.decision.to === "HANDOFF" && enterHandoff.test(samples)) {
+  if (!coolingDown && input.decision.to === "HANDOFF" && enterHandoff(policy).test(samples)) {
     return {
       ...current,
       committedMode: "HANDOFF",

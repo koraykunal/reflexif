@@ -45,6 +45,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm test
 npm run eval:scenarios
+npm run evaluate -- [ledger.jsonl] [outcomes.jsonl]
 npm run simulate
 npm run simulate:faults
 npm run replay
@@ -55,6 +56,14 @@ npm run build
 `eval:scenarios` sends ten small live requests to Jev. It checks clear handoffs, ambiguous gestures, absent people, empty robot hands, blocked paths, and out-of-range interactions against expected transitions.
 
 Every evaluation attempt is written to `.reflexif/decisions.jsonl`, including provider failures. Each v2 event records the raw proposal, temporal state before and after evaluation, and the final committed decision. `npm run replay` reconstructs those transitions with the current deterministic and temporal policies without calling Jev again. Pass a different JSONL path after `--` when needed.
+
+Outcome labels are separate JSONL records so the immutable decision ledger is never rewritten:
+
+```json
+{"sessionId":"session-id","sequence":0,"expectedMode":"OBSERVING"}
+```
+
+`npm run evaluate` compares the current policy with a conservative shadow policy over labeled v2 events. It reports label coverage, exact accuracy, false-positive and false-negative frames, abstention, Brier score, calibration error, and changed committed decisions. The shadow run reuses recorded signal frames and never calls the provider.
 
 ## Stream stability
 
