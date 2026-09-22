@@ -61,6 +61,8 @@ export type DecisionCommit = {
 
 export type EvaluationResult = {
   decisionId: string;
+  sessionId: string;
+  sequence: number;
   snapshot: RobotSnapshot;
   frame: SignalFrame;
   decision: PolicyDecision;

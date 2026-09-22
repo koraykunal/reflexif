@@ -90,6 +90,8 @@ export async function POST(request: Request) {
 
     return Response.json({
       decisionId: event.id,
+      sessionId,
+      sequence,
       snapshot,
       frame,
       decision,

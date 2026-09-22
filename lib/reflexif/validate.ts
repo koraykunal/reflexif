@@ -12,6 +12,18 @@ type EvaluationRequestResult =
   | { ok: true; value: EvaluationRequest }
   | { ok: false; error: string };
 
+type OutcomeRequest = {
+  decisionId: string;
+  sessionId: string;
+  sequence: number;
+  expectedMode: RobotMode;
+  expectedHandoffRequested?: boolean;
+};
+
+type OutcomeRequestResult =
+  | { ok: true; value: OutcomeRequest }
+  | { ok: false; error: string };
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -90,6 +102,37 @@ export function parseEvaluationRequest(input: unknown): EvaluationRequestResult 
       sessionId: input.sessionId,
       sequence: input.sequence as number,
       snapshot: snapshot.value,
+    },
+  };
+}
+
+export function parseOutcomeRequest(input: unknown): OutcomeRequestResult {
+  if (
+    !isRecord(input) ||
+    typeof input.decisionId !== "string" ||
+    input.decisionId.length === 0 ||
+    input.decisionId.length > 128 ||
+    typeof input.sessionId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,64}$/.test(input.sessionId) ||
+    !Number.isInteger(input.sequence) ||
+    (input.sequence as number) < 0 ||
+    !isMode(input.expectedMode) ||
+    ("expectedHandoffRequested" in input &&
+      typeof input.expectedHandoffRequested !== "boolean")
+  ) {
+    return { ok: false, error: "Outcome label is invalid." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      decisionId: input.decisionId,
+      sessionId: input.sessionId,
+      sequence: input.sequence as number,
+      expectedMode: input.expectedMode,
+      ...("expectedHandoffRequested" in input
+        ? { expectedHandoffRequested: input.expectedHandoffRequested as boolean }
+        : {}),
     },
   };
 }

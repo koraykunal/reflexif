@@ -19,6 +19,11 @@ import {
   readLatestDecisionEvent,
   SequenceConflictError,
 } from "./ledger.ts";
+import {
+  appendOutcomeLabel,
+  OutcomeConflictError,
+  readOutcomeLabels,
+} from "./outcomes.ts";
 import { decide, POLICY_VERSION } from "./policy.ts";
 import { CURRENT_REPLAY_POLICY, replayDecisionEvents, replayDecisions } from "./replay.ts";
 import {
@@ -28,6 +33,7 @@ import {
   TEMPORAL_POLICY_VERSION,
 } from "./temporal.ts";
 import type { RobotSnapshot, SignalFrame } from "./types.ts";
+import { parseOutcomeRequest } from "./validate.ts";
 
 const snapshot: RobotSnapshot = {
   person: { visible: true, lookingAtRobot: true, handExtended: true, distanceMeters: 0.7 },
@@ -62,6 +68,37 @@ test("persists decisions and replays them without model inference", async () => 
     assert.equal(records[0].id, written.id);
     assert.equal(replay[0].changed, false);
     assert.equal(replay[0].currentDecision.to, "HANDOFF");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("stores one validated outcome label per decision event", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reflexif-outcomes-"));
+  const outcomesPath = path.join(directory, "outcomes.jsonl");
+  const input = {
+    decisionId: "decision-1",
+    sessionId: "session-1",
+    sequence: 0,
+    expectedMode: "OBSERVING" as const,
+    expectedHandoffRequested: true,
+  };
+
+  try {
+    const parsed = parseOutcomeRequest(input);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+
+    const record = await appendOutcomeLabel(parsed.value, outcomesPath);
+    assert.equal(record.decisionId, input.decisionId);
+    assert.deepEqual(await readOutcomeLabels(outcomesPath), [{
+      sessionId: input.sessionId,
+      sequence: input.sequence,
+      expectedMode: input.expectedMode,
+      expectedHandoffRequested: true,
+    }]);
+    await assert.rejects(appendOutcomeLabel(parsed.value, outcomesPath), OutcomeConflictError);
+    assert.equal(parseOutcomeRequest({ ...input, expectedHandoffRequested: "yes" }).ok, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

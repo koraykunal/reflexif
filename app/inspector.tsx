@@ -27,6 +27,7 @@ const initialSnapshot: RobotSnapshot = {
 };
 
 type RequestState = "idle" | "loading" | "success" | "error";
+type AnnotationState = "idle" | "saving" | "saved" | "error";
 
 function Toggle({
   checked,
@@ -74,6 +75,10 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expectedMode, setExpectedMode] = useState<RobotMode | "">("");
+  const [expectedHandoffRequested, setExpectedHandoffRequested] = useState<"" | "true" | "false">("");
+  const [annotationState, setAnnotationState] = useState<AnnotationState>("idle");
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
   const [temporal, setTemporal] = useState(() => createTemporalState(initialSnapshot.robot.mode));
   const sessionId = useRef<string | null>(null);
   const sequence = useRef(0);
@@ -88,6 +93,10 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
     event.preventDefault();
     setRequestState("loading");
     setError(null);
+    setExpectedMode("");
+    setExpectedHandoffRequested("");
+    setAnnotationState("idle");
+    setAnnotationError(null);
 
     try {
       const response = await fetch("/api/evaluate", {
@@ -122,6 +131,36 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Evaluation failed.");
       setRequestState("error");
+    }
+  }
+
+  async function labelOutcome() {
+    if (!result || !expectedMode) return;
+    setAnnotationState("saving");
+    setAnnotationError(null);
+
+    try {
+      const response = await fetch("/api/outcomes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          decisionId: result.decisionId,
+          sessionId: result.sessionId,
+          sequence: result.sequence,
+          expectedMode,
+          ...(expectedHandoffRequested
+            ? { expectedHandoffRequested: expectedHandoffRequested === "true" }
+            : {}),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Outcome label could not be recorded.");
+      setAnnotationState("saved");
+    } catch (requestError) {
+      setAnnotationError(
+        requestError instanceof Error ? requestError.message : "Outcome label could not be recorded.",
+      );
+      setAnnotationState("error");
     }
   }
 
@@ -294,6 +333,59 @@ export function Inspector({ hasApiKey }: { hasApiKey: boolean }) {
                     <code>{gate.value}</code>
                   </div>
                 ))}
+              </div>
+              <div className="annotation" aria-labelledby="annotation-title">
+                <div className="annotation-heading">
+                  <div>
+                    <span className="panel-index">GROUND TRUTH</span>
+                    <h3 id="annotation-title">Label this outcome</h3>
+                  </div>
+                  <span className="mono-caption">{result.sessionId.slice(0, 8)} / {result.sequence}</span>
+                </div>
+                <div className="annotation-fields">
+                  <label className="input-block" htmlFor="expected-mode">
+                    <span>Observed mode</span>
+                    <select
+                      id="expected-mode"
+                      value={expectedMode}
+                      disabled={annotationState === "saving" || annotationState === "saved"}
+                      onChange={(event) => setExpectedMode(event.target.value as RobotMode | "")}
+                    >
+                      <option value="">Select outcome</option>
+                      <option value="IDLE">IDLE</option>
+                      <option value="OBSERVING">OBSERVING</option>
+                      <option value="HANDOFF">HANDOFF</option>
+                    </select>
+                  </label>
+                  <label className="input-block" htmlFor="expected-handoff">
+                    <span>Was handoff requested?</span>
+                    <select
+                      id="expected-handoff"
+                      value={expectedHandoffRequested}
+                      disabled={annotationState === "saving" || annotationState === "saved"}
+                      onChange={(event) =>
+                        setExpectedHandoffRequested(event.target.value as "" | "true" | "false")
+                      }
+                    >
+                      <option value="">Unknown</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  </label>
+                </div>
+                <button
+                  className="evaluate-button annotation-button"
+                  type="button"
+                  disabled={!expectedMode || annotationState === "saving" || annotationState === "saved"}
+                  onClick={labelOutcome}
+                >
+                  {annotationState === "saving"
+                    ? "Saving..."
+                    : annotationState === "saved"
+                      ? "Outcome recorded"
+                      : "Record ground truth"}
+                </button>
+                {annotationError ? <p className="error-message" role="alert">{annotationError}</p> : null}
               </div>
             </>
           ) : (

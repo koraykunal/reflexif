@@ -481,6 +481,40 @@ legend {
   white-space: nowrap;
 }
 
+.annotation {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.annotation-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.annotation-heading h3 {
+  margin: 6px 0 0;
+  font-size: 16px;
+  font-weight: 520;
+  letter-spacing: -0.02em;
+}
+
+.annotation-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.annotation-button {
+  margin-top: 16px;
+}
+
+.annotation-button:disabled {
+  cursor: not-allowed;
+}
+
 .empty-state {
   display: grid;
   min-height: 410px;
@@ -622,6 +656,10 @@ legend {
   .frame-meta {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .annotation-fields {
+    grid-template-columns: 1fr;
   }
 
   .transition {

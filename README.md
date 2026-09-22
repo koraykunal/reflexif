@@ -69,6 +69,8 @@ Outcome labels are separate JSONL records so the immutable decision ledger is ne
 
 `expectedMode` labels committed behavior. The optional `expectedHandoffRequested` label is separate semantic ground truth; Brier score and calibration error are reported only for rows that include it. This avoids treating deliberate temporal waiting or deterministic safety blocks as model calibration errors.
 
+After a successful inspector evaluation, the Ground Truth panel can append that event's observed mode and optional semantic label to `.reflexif/outcomes.jsonl`. The API verifies the exact decision event exists in the ledger and rejects duplicate labels. This local JSONL workflow is intended for single-node evaluation; add authentication and transactional storage before exposing annotation in a deployed multi-user environment.
+
 `npm run evaluate` compares the current policy with the versioned shadow policy in `eval/candidate-policy.json` over labeled v2 events. It reports label coverage, exact accuracy, false-positive and false-negative frames, abstention, Brier score, calibration error, and changed committed decisions. The shadow run reuses recorded signal frames and never calls the provider. `npm run evaluate:check` exits unsuccessfully when a configured regression budget is exceeded.
 
 ## Stream stability
