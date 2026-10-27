@@ -42,3 +42,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# editors, IDEs and AI tooling (local state, never committed)
+.idea/
+.vscode/
+*.iml
+.claude/
+.codex/
+.agents/
+.opencode/
+.cursor/
+.windsurf/
+.continue/
+.gemini/
+.aider*
+.playwright-mcp/
+.claude-mem/
+.mcp.json
+CLAUDE.local.md
+AGENTS.local.md
+graphify-out/
